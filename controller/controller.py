@@ -1,6 +1,6 @@
 from ryu.base import app_manager
 from ryu.controller import ofp_event
-from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, set_ev_cls
+from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, DEAD_DISPATCHER, set_ev_cls
 from ryu.lib.packet import packet, ethernet, arp, ipv4, tcp, ether_types
 from ryu.lib import hub
 from ryu.ofproto import ofproto_v1_3
@@ -22,8 +22,6 @@ class Controller(app_manager.RyuApp):
         wsgi.register(RestAPI, {'controller_app': self})
         
         # Role Management
-        #role = os.environ.get("RYU_ROLE", "slave").lower()
-        #self.IS_MASTER = (role == "master")
         self.switches_roles = {}
         
         # Load Balancing Metrics
@@ -70,7 +68,7 @@ class Controller(app_manager.RyuApp):
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,ofproto.OFPCML_NO_BUFFER)] 
         self.add_flow(dp=dp, table=self.DEFAULT_TABLE, priority=self.LOW_PRIORITY, match=match, actions=actions)
-
+        
     # Function to handle link enter event
     @set_ev_cls(topo_event.EventLinkAdd, MAIN_DISPATCHER)
     def new_link_handler(self, ev):
@@ -99,7 +97,7 @@ class Controller(app_manager.RyuApp):
         self.network.add_node(host_ipv4, type=self.HOST_TYPE, mac=host_mac)
         self.network.add_edge(host_ipv4, dpid, src_port=self.DEFAULT_HOST_PORT, dst_port=dpid_port)
         self.network.add_edge(dpid, host_ipv4, src_port=dpid_port, dst_port=self.DEFAULT_HOST_PORT)
-        
+
     def monitor(self):
         while True:
             self.logger.info("Printing topology information")
@@ -157,6 +155,11 @@ class Controller(app_manager.RyuApp):
         # LLDP packets are ignored
         if ethertype == ether_types.ETH_TYPE_LLDP:
             return
+
+        current_role = self.switches_roles.get(dpid, 'EQUAL')
+        if current_role == 'SLAVE':
+            return
+
         self.packet_in_count += 1
         self.logger.info(f"PacketIn s{dpid}: {src_mac} → {dst_mac}")
         
@@ -182,7 +185,7 @@ class Controller(app_manager.RyuApp):
                     out_port = self.network[dpid][next_hop]['src_port']
             except (nx.NetworkXNoPath, KeyError):
                 out_port = datapath.ofproto.OFPP_FLOOD
-
+        
         actions = [parser.OFPActionOutput(out_port)]
         
         # Install flow if the destination IP is known
@@ -203,4 +206,47 @@ class Controller(app_manager.RyuApp):
         out = parser.OFPPacketOut(datapath=datapath, buffer_id=ev.msg.buffer_id,
                                 in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
-    
+
+    @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, DEAD_DISPATCHER])
+    def state_change_handler(self, ev):
+        datapath = ev.datapath
+        dpid = datapath.id
+
+        if ev.state == DEAD_DISPATCHER:
+            if dpid in self.datapaths: del self.datapaths[dpid]
+            return
+
+        self.datapaths[dpid] = datapath
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        '''
+        # A. SET ASYNC MESSAGES
+        packet_in_mask = [
+            ofproto.OFPR_NO_MATCH | ofproto.OFPR_ACTION | ofproto.OFPR_INVALID_TTL,
+            ofproto.OFPR_NO_MATCH | ofproto.OFPR_ACTION | ofproto.OFPR_INVALID_TTL
+        ]
+        port_status_mask = [
+             ofproto.OFPPR_ADD | ofproto.OFPPR_DELETE | ofproto.OFPPR_MODIFY,
+             ofproto.OFPPR_ADD | ofproto.OFPPR_DELETE | ofproto.OFPPR_MODIFY
+        ]
+        req_async = parser.OFPSetAsync(datapath, packet_in_mask, port_status_mask, [0,0])
+        datapath.send_msg(req_async)
+        '''
+        # B. DEFAULT ROLE: EQUAL
+        self.switches_roles[dpid] = "EQUAL"
+
+    def set_role(self, dpid, role_str, gen_id):
+        if dpid not in self.datapaths: return False
+        
+        dp = self.datapaths[dpid]
+        ofp = dp.ofproto
+        parser = dp.ofproto_parser
+
+        self.switches_roles[dpid] = role_str.upper()
+        
+        role_of = ofp.OFPCR_ROLE_MASTER if role_str.upper() == 'MASTER' else ofp.OFPCR_ROLE_SLAVE
+        req = parser.OFPRoleRequest(dp, role=role_of, generation_id=gen_id)
+        dp.send_msg(req)
+        
+        self.logger.info(f"Role updated for s{dpid}: {role_str}")
+        return True

@@ -31,26 +31,27 @@ class RestAPI(ControllerBase):
         if dpid not in self.app.datapaths:
             return Response(status=404)
 
-        dp = self.app.datapaths[dpid]
-        ofp = dp.ofproto
-        parser = dp.ofproto_parser
+        success = self.app.set_role(dpid, role_str, gen_id)
 
-        if role_str == 'MASTER':
-            role = ofp.OFPCR_ROLE_MASTER
-            self.app.IS_MASTER = True
-        elif role_str == 'SLAVE':
-            role = ofp.OFPCR_ROLE_SLAVE
-            self.app.IS_MASTER = False
+        if success:
+            return Response(status=200, body=f"Role updated to {role_str}")
         else:
-            return Response(status=400)
+            return Response(status=404, body="Switch not found")
+        
 
-        req_role = parser.OFPRoleRequest(
-            dp,
-            role=role,
-            generation_id=gen_id
+    @route('roles', '/roles', methods=['GET'])
+    def get_roles(self, req, **kwargs):
+        connected_dpids = list(self.app.datapaths.keys())
+        roles_map = self.app.switches_roles.copy()
+        body = {
+            'controller_id': id(self.app),
+            'packet_in_count': self.app.packet_in_count,
+            'switches_connected': connected_dpids,
+            'roles_table': roles_map
+        }
+        
+        return Response(
+            content_type='application/json',
+            body=json.dumps(body)
         )
-        dp.send_msg(req_role)
-
-        return Response(status=200)
-
 
