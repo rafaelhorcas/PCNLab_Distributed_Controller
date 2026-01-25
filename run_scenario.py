@@ -21,9 +21,7 @@ class Runner:
     def create_network(self):
         print("Building mininet topology.")
         self.topo = ProjectTopology()
-        self.controller_a = RemoteController(name="controllerA", ip="127.0.0.1", port=6653)
-        self.controller_b = RemoteController(name="controllerB", ip="127.0.0.1", port=6654)
-        self.net = Mininet(topo=self.topo, link=TCLink, host=Host, switch=OVSSwitch, controller=[self.controller_a, self.controller_b])
+        self.net = Mininet(topo=self.topo, link=TCLink, host=Host, switch=OVSSwitch, controller=None)
 
     def do_net_cli(self):
         print("Starting mininet CLI")
