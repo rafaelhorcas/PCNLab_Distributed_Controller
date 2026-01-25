@@ -22,9 +22,10 @@ class Controller(app_manager.RyuApp):
         wsgi.register(RestAPI, {'controller_app': self})
         
         # Role Management
-        role = os.environ.get("RYU_ROLE", "slave").lower()
-        self.IS_MASTER = (role == "master")
-
+        #role = os.environ.get("RYU_ROLE", "slave").lower()
+        #self.IS_MASTER = (role == "master")
+        self.switches_roles = {}
+        
         # Load Balancing Metrics
         self.packet_in_count = 0
         self.datapaths = {}
@@ -138,12 +139,9 @@ class Controller(app_manager.RyuApp):
     # Function to handle packet in events
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def packet_in_handler(self, ev):
-        if not self.IS_MASTER:
-            return
-        
-        self.packet_in_count += 1
         # Extracts switch info
         dp = ev.msg.datapath
+        datapath = ev.msg.datapath
         dpid = dp.id
         in_port = ev.msg.match['in_port']
         # Extracts OF handlers
@@ -159,122 +157,50 @@ class Controller(app_manager.RyuApp):
         # LLDP packets are ignored
         if ethertype == ether_types.ETH_TYPE_LLDP:
             return
-        
+        self.packet_in_count += 1
         self.logger.info(f"PacketIn s{dpid}: {src_mac} → {dst_mac}")
         
         if ethertype == ether_types.ETH_TYPE_ARP:
             arp_header = pkt_in.get_protocols(arp.arp)[0]
-            self.arp_handler(in_port=in_port, dp=dp, parser=parser, proto=ethertype, arp_header=arp_header, ev=ev)
-            return
-        
-        if ethertype == ether_types.ETH_TYPE_IP:
+            src_ip = arp_header.src_ip
+            dst_ip = arp_header.dst_ip        
+        elif ethertype == ether_types.ETH_TYPE_IP:
             ip_header = pkt_in.get_protocols(ipv4.ipv4)[0]
-            self.ip_handler(dp=dp, parser=parser,ip_header=ip_header, ev=ev)
-            return
-            
-    def arp_handler(self, in_port, dp, parser,  proto, arp_header, ev):
-        src_ip = arp_header.src_ip
-        dst_ip = arp_header.dst_ip
-
-        shortest_path = self.path_handler(src_ip, dst_ip)
-        self.logger.info(f"Shortest path for ARP h{src_ip} --> h{dst_ip}: {shortest_path}")
-        
-        if shortest_path:
-            for index, link in enumerate(shortest_path):
-                src_sw, dst_sw = link
-                hop_dp = self.network.nodes[src_sw]['dp']
-                match = parser.OFPMatch(
-                        eth_type=proto,
-                        arp_spa=src_ip,
-                        arp_tpa=dst_ip
-                    )
-                out_port = self.network.get_edge_data(src_sw, dst_sw)["src_port"]
-                actions = [parser.OFPActionOutput(out_port)]
-                self.logger.info(f"DP: {hop_dp.id}, Match: [ARP tpa: {dst_ip}], Out port: {out_port}")
-                self.add_flow(dp=hop_dp, table=self.DEFAULT_TABLE, priority=self.HIGH_PRIORITY, match=match, actions=actions)
-                
-            # Forwarding initial ARP packet
-            if index == len(shortest_path) - 1:
-                in_port = self.network.get_edge_data(src_sw, dst_sw)["dst_port"]
-                self.logger.info(f"Pkt-out DP: {hop_dp.id}, in-port: {in_port}, out-port: {out_port}")
-                out = parser.OFPPacketOut(datapath=hop_dp, buffer_id=ev.msg.buffer_id, in_port=in_port, actions=actions, data=ev.msg.data)
-                hop_dp.send_msg(out)
+            src_ip = ip_header.src
+            dst_ip = ip_header.dst
         else:
-            actions = [parser.OFPActionOutput(dp.ofproto.OFPP_FLOOD)]
-            out = parser.OFPPacketOut(
-                datapath=dp,
-                buffer_id=ev.msg.buffer_id,
-                in_port=in_port,
-                actions=actions,
-                data=ev.msg.data
-            )
-            dp.send_msg(out)
             return
-
-    def ip_handler(self, dp, parser, ip_header, ev):
-        src_ip = ip_header.src
-        dst_ip = ip_header.dst
-
-        shortest_path = self.path_handler(src_ip, dst_ip)
-        self.logger.info(f"Shortest path for IP h{src_ip} --> h{dst_ip}: {shortest_path}")
+        # Default output port is FLOOD
+        out_port = datapath.ofproto.OFPP_FLOOD
         
-        if shortest_path:
-            for index, link in enumerate(shortest_path):
-                src_sw, dst_sw = link
-                hop_dp = self.network.nodes[src_sw]['dp']
-                match = parser.OFPMatch(
-                        eth_type=ether_types.ETH_TYPE_IP,
-                        ipv4_src=src_ip,
-                        ipv4_dst=dst_ip
-                )
-                out_port = self.network.get_edge_data(src_sw, dst_sw)["src_port"]
-                actions = [parser.OFPActionOutput(out_port)]
-                self.logger.info(f"DP: {hop_dp.id}, Match: [src IP: {src_ip} dst IP: {dst_ip}], Out port: {out_port}")
-                self.add_flow(dp=hop_dp, table=self.DEFAULT_TABLE, priority=self.HIGH_PRIORITY, match=match, actions=actions)
-                
-            # Forwarding initial IP packet
-            if index == len(shortest_path) - 1:
-                in_port = self.network.get_edge_data(src_sw, dst_sw)["dst_port"]
-                self.logger.info(f"Pkt-out DP: {hop_dp.id}, in-port: {in_port}, out-port: {out_port}")
-                out = parser.OFPPacketOut(datapath=hop_dp, buffer_id=ev.msg.buffer_id, in_port=in_port, actions=actions, data=ev.msg.data)
-                hop_dp.send_msg(out)
-        else:
-            self.logger.warning(f"IP Handler: No path found for {src_ip} -> {dst_ip}. Dropping packet.")
-            return
-
-    def path_handler(self, src_ip, dst_ip):
-        if self.network.has_node(src_ip) and self.network.has_node(dst_ip):
+        # If the destination is known in the graph, try to find the shortest path
+        if self.network.has_node(dpid) and self.network.has_node(dst_ip):
             try:
-                shortest_path = nx.shortest_path(self.network, source=src_ip, target=dst_ip)
-                shortest_path = list(zip(shortest_path[1:-1], shortest_path[2:]))
-                self.logger.info(f"SP {src_ip} --> {dst_ip}: {shortest_path}")
-                return shortest_path
-            except nx.NetworkXNoPath:
-                return []
-        else:
-            self.logger.info(f"No SP found between {src_ip} --> {dst_ip}")
-            return []
+                shortest_path = nx.shortest_path(self.network, source=dpid, target=dst_ip)
+                if len(shortest_path) >= 2:
+                    next_hop = shortest_path[1]
+                    out_port = self.network[dpid][next_hop]['src_port']
+            except (nx.NetworkXNoPath, KeyError):
+                out_port = datapath.ofproto.OFPP_FLOOD
+
+        actions = [parser.OFPActionOutput(out_port)]
+        
+        # Install flow if the destination IP is known
+        if out_port != datapath.ofproto.OFPP_FLOOD:
+            if ethertype == ether_types.ETH_TYPE_ARP:
+                match = parser.OFPMatch(eth_type=ethertype, arp_spa=src_ip, arp_tpa=dst_ip)
+            else:
+                match = parser.OFPMatch(eth_type=ethertype, ipv4_src=src_ip, ipv4_dst=dst_ip)
+            
+            self.add_flow(dp=datapath, table=self.DEFAULT_TABLE, priority=self.HIGH_PRIORITY, 
+                        match=match, actions=actions, i_tout=10)
+
+        # Send the packet out
+        data = None
+        if ev.msg.buffer_id == datapath.ofproto.OFP_NO_BUFFER:
+            data = ev.msg.data
+
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=ev.msg.buffer_id,
+                                in_port=in_port, actions=actions, data=data)
+        datapath.send_msg(out)
     
-    @set_ev_cls(ofp_event.EventOFPStateChange, MAIN_DISPATCHER)
-    def state_change_handler(self, ev):
-        datapath = ev.datapath
-        dpid = datapath.id
-        self.datapaths[datapath.id] = datapath
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-
-        if self.IS_MASTER:
-            role = ofproto.OFPCR_ROLE_MASTER
-            role_str = "MASTER"
-        else:
-            role = ofproto.OFPCR_ROLE_SLAVE
-            role_str = "SLAVE"
-
-        req = parser.OFPRoleRequest(
-            datapath,
-            role=role,
-            generation_id=0
-        )
-        datapath.send_msg(req)
-
-        self.logger.info("Sent role %s to switch %s", role_str, dpid)
