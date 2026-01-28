@@ -11,16 +11,13 @@ from ryu.app.wsgi import WSGIApplication
 import networkx as nx
 from controllerRESTAPI import RestAPI
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from BaseLogger import BaseLogger
-ç
 
-class Controller(app_manager.RyuApp, BaseLogger):
+class Controller(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     _CONTEXTS = {'wsgi': WSGIApplication}
 
     def __init__(self, *args, **kwargs):
         super(Controller, self).__init__(*args, **kwargs)
-        BaseLogger.__init__(self, log_name="controller", log_level="INFO")
         
         # REST API
         wsgi = kwargs['wsgi']

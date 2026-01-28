@@ -14,9 +14,16 @@ class Runner:
         self.net.start()
         sleep(1)
 
-        self.do_net_cli()
+        #self.do_net_cli()
         # stop right after the CLI is exited
-        self.net.stop()
+        try:
+            # Bucle infinito para que el proceso no termine
+            while True:
+                sleep(1)
+        except KeyboardInterrupt:
+            # Solo se ejecuta cuando se detiene el proceso
+            print("Stopping Mininet...")
+            self.net.stop()
 
     def create_network(self):
         print("Building mininet topology.")

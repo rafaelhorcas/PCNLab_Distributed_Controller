@@ -8,6 +8,8 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from BaseLogger import BaseLogger
 from LoadBalancerAPI import LoadBalancerAPI
+import csv
+import datetime
 
 class RyuLoadBalancer(BaseLogger):
     """
@@ -15,6 +17,9 @@ class RyuLoadBalancer(BaseLogger):
     It monitors network traffic and scales the number of controllers based on average load.
     """
     def __init__(self,log_level="INFO"):
+        # Logger Initialization
+        super().__init__(log_name="load_balancer", log_level=log_level)
+        
         # --- CONFIGURATION PARAMETERS---
         self.BASE_WS_PORT = 8081                 # Base TCP Port for WebSocket API
         self.BASE_OFP_PORT = 6653                # Base TCP Port for OpenFlow
@@ -25,6 +30,8 @@ class RyuLoadBalancer(BaseLogger):
         self.MAX_CONTROLLERS = 5                 # Maximum number of controllers allowed
         self.TARGET_LOAD_PER_CONTROLLER = 50     # Avg PPS threshold to scale UP
         self.MIN_LOAD_PER_CONTROLLER = 15        # Avg PPS threshold to scale DOWN
+        self.current_avg_load = 0                # Current average load per controller
+        self.current_rates = {}                  # Current packet rates per controller
 
         # Timers
         self.CHECK_INTERVAL = 5                  # How often to check metrics
@@ -38,8 +45,18 @@ class RyuLoadBalancer(BaseLogger):
         self.last_scale_action_time = 0          # Timestamp of last scaling action
         self.CURRENT_GEN_ID = 0                  # Generation ID for role requests
         
-        super().__init__(log_name="load_balancer", log_level=log_level)
+        # GUI
+        self.monitoring_active = False          # Flag to start monitoring loop
+        self.auto_mode = False
+        self.last_event_msg = "System Idle - Waiting for Mininet"
         self.api = LoadBalancerAPI(self)
+        
+        # Tests
+        self.start_time = time.time()
+        self.csv_filename = "experiment_results.csv"
+        with open(self.csv_filename, mode='w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['timestamp', 'elapsed_s', 'num_controllers', 'total_pps', 'avg_load', 'is_scaling'])
 
     # --- OVS FUNCTIONS ---
     def get_all_switches(self):
@@ -225,7 +242,6 @@ class RyuLoadBalancer(BaseLogger):
 
         # Calculate next available ID
         new_id = max(self.active_controllers) + 1 if self.active_controllers else 0
-        self.logger.info(f"\n[SCALING UP] High load detected! Spawning ryu_{new_id}...")
 
         if self.start_controller(new_id):
             # 1. Connect to OVS immediately to receive LLDP
@@ -240,7 +256,7 @@ class RyuLoadBalancer(BaseLogger):
             self.logger.info("   -> Re-distributing switches...")
             self.distribute_switches()
             
-            last_scale_action_time = time.time()
+            self.last_scale_action_time = time.time()
 
     def scale_down(self):
         """
@@ -257,7 +273,6 @@ class RyuLoadBalancer(BaseLogger):
 
         # Select victim (Highest ID)
         controller_id = max(self.active_controllers)
-        self.logger.info(f"\n[SCALING DOWN] Low load detected! Removing ryu_{controller_id}...")
 
         # 1. Remove from active set so distribute_switches ignores it
         self.active_controllers.discard(controller_id)
@@ -321,58 +336,62 @@ class RyuLoadBalancer(BaseLogger):
             None
         """
         self.logger.info("Starting SDN Auto-Scaling Load Balancer")
-        api_thread = threading.Thread(target=self.api.run, daemon=True)
-        api_thread.start()
+        flask_thread = threading.Thread(target=self.api.run, daemon=True)
+        flask_thread.start()
 
         # 1. Initial State (Start minimum controllers)
-        self.start_controller(0)
-        self.start_controller(1)
+        #self.start_controller(0)
+        #self.start_controller(1)
         
-        self.logger.info("Waiting for Mininet initialization...")
-        time.sleep(15)
+        #self.logger.info("Waiting for Mininet initialization...")
+        #time.sleep(15)
         
-        self.logger.info("Initial OVS Update...")
-        self.update_ovs_connections()
-        self.distribute_switches()
+        #self.logger.info("Initial OVS Update...")
+        #self.update_ovs_connections()
+        #self.distribute_switches()
 
         last_scale_action_time = time.time()
 
         # 2. Monitoring Loop
         try:
             while True:
-                time.sleep(self.CHECK_INTERVAL)
-                
-                # Cooldown check
-                if (time.time() - last_scale_action_time) < self.COOLDOWN_TIME:
-                    self.logger.info(f"Cooldown active... ({int(time.time() - last_scale_action_time)}s / {self.COOLDOWN_TIME}s)")
+                if not self.monitoring_active:
+                    time.sleep(1)
                     continue
+                
+                time.sleep(self.CHECK_INTERVAL)
 
                 # Get Metrics
                 total_packets, rates_map = self.get_total_traffic_rate()
                 num_active = len(self.active_controllers)
-                
-                if num_active == 0: num_active = 1 # Avoid division by zero
-                
-                # --- AVERAGE LOAD CALCULATION ---
-                # This ensures smooth scaling. We look at load PER CONTROLLER, not total.
-                avg_load = total_packets / num_active
-                
-                # Formatting status output
-                details_str = " ".join([f"[Ryu_{cid}: {val}]" for cid, val in sorted(rates_map.items())])
-                self.logger.info(f"Status: {details_str}")
-                self.logger.info(f"--> SYSTEM TOTAL: {total_packets} pkts | AVG LOAD: {avg_load:.1f} (Target: {self.TARGET_LOAD_PER_CONTROLLER})")
-                
-                # Decision Logic
-                if avg_load > self.TARGET_LOAD_PER_CONTROLLER:
-                    self.logger.info(f"   [!] Average load ({avg_load:.1f}) > Target ({self.TARGET_LOAD_PER_CONTROLLER}) -> SCALING UP")
-                    self.scale_up()
-                    self.get_total_traffic_rate() # Reset metrics to avoid double triggers
+                self.current_avg_load = total_packets / (num_active if num_active > 0 else 1)
+                self.current_rates = rates_map
+                is_scaling = (time.time() - self.last_scale_action_time) < self.COOLDOWN_TIME
+
+                # --- 3. GUARDAR EN EL CSV ---
+                elapsed = int(time.time() - self.start_time)
+                with open(self.csv_filename, mode='a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        datetime.datetime.now().strftime("%H:%M:%S"),
+                        elapsed,
+                        num_active,
+                        total_packets,
+                        round(self.current_avg_load, 2),
+                        1 if is_scaling else 0
+                    ])
+                if self.auto_mode:
+                    # Cooldown check
+                    if (time.time() - self.last_scale_action_time) < self.COOLDOWN_TIME:
+                            continue
+
+                    if self.current_avg_load > self.TARGET_LOAD_PER_CONTROLLER:
+                        self.logger.warning(f"AUTO: High Load ({self.current_avg_load:.1f}). Scaling UP.")
+                        self.scale_up()
                     
-                elif avg_load < self.MIN_LOAD_PER_CONTROLLER and num_active > self.MIN_CONTROLLERS:
-                    self.logger.info(f"   [!] Average load ({avg_load:.1f}) < Min ({self.MIN_LOAD_PER_CONTROLLER}) -> SCALING DOWN")
-                    self.scale_down()
-                    self.get_total_traffic_rate() # Reset metrics
-                
+                    elif self.current_avg_load < self.MIN_LOAD_PER_CONTROLLER and num_active > self.MIN_CONTROLLERS:
+                        self.logger.warning(f"AUTO: Low Load ({self.current_avg_load:.1f}). Scaling DOWN.")
+                        self.scale_down()
                 else:
                     self.logger.info("   [OK] System Stable.")
 
