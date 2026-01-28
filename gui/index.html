@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ryu Controller Load Balancer</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .sidebar { background: #2c3e50; color: white; min-height: 100vh; padding: 25px; box-shadow: 2px 0 5px rgba(0,0,0,0.1); }
+        .card { border: none; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        #topology-container { height: 600px; width: 100%; background: white; border-radius: 10px; }
+        .btn-step { width: 100%; margin-bottom: 15px; padding: 12px; text-align: left; font-weight: 600; transition: 0.3s; }
+        .btn-step:disabled { opacity: 0.4; cursor: not-allowed; }
+        .metric-value { font-size: 1.5rem; font-weight: bold; color: #2c3e50; }
+        .scaling-notification { animation: pulse 2s infinite; }
+        .btn-square {width: 35px; height: 35px; display: flex; align-items: center; justify-content: center; padding: 0; font-size: 1.3rem;}
+        .controller-box {border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 10px;  background: rgba(255, 255, 255, 0.05);}
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-3 sidebar">
+            <h4 class="mb-4 text-center">Ryu Controller Load Balancer</h4>
+            <hr class="border-secondary">
+
+           <button id="btn-mininet" class="btn btn-primary w-100 py-2 mb-4 fw-bold shadow-sm">START MININET</button>
+
+            <div class="controller-box p-2 mb-4">
+                <div class="d-flex align-items-center justify-content-between">
+                    <span class="fw-bold text-uppercase small ps-1" style="letter-spacing: 1px; font-size: 1rem;">Controllers:</span>
+                    <div class="d-flex gap-2">
+                        <button id="id-btn-down" class="btn btn-danger btn-square fw-bold shadow-sm" disabled>-</button>
+                        <button id="id-btn-up" class="btn btn-success btn-square fw-bold shadow-sm" disabled>+</button>
+                    </div>
+                </div>
+            </div>
+
+           <button id="btn-balancer" class="btn btn-success w-100 py-2 mb-4 fw-bold shadow-sm" disabled>LOAD BALANCER</button>
+
+            <div class="row g-2 mb-3">
+                <div class="col-6">
+                    <label class="small fw-bold">PPS</label>
+                    <input type="text" id="input-pps" class="form-control form-control-sm bg-dark text-white border-secondary" placeholder="e.g. 100">
+                </div>
+                <div class="col-6">
+                    <label class="small fw-bold">TIME (s)</label>
+                    <input type="text" id="input-time" class="form-control form-control-sm bg-dark text-white border-secondary" placeholder="e.g. 60">
+                </div>
+            </div>
+
+            <button id="btn-attack" class="btn btn-danger w-100 fw-bold py-2" disabled>GENERATE TRAFFIC</button>
+            
+            <hr class="border-secondary">
+
+            <h6>System Output</h6>
+            <div id="log-console" class="p-2 bg-dark rounded text-success mb-4" 
+                style="height: 180px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 0.85rem; border: 1px solid #444;">
+                > Ready to initialize...
+            </div>
+
+        </div>
+
+        <div class="col-md-5 p-4">
+            <div class="card p-3">
+                <h5 class="card-title">Network Topology Map</h5>
+                <div id="topology-container"></div>
+            </div>
+        </div>
+
+        <div class="col-md-4 p-4">
+            <div class="row">
+                <div class="col-6">
+                    <div class="card p-3 text-center">
+                        <small class="text-muted">AVG LOAD (PPS)</small>
+                        <div id="avg-load-val" class="metric-value">0.0</div>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="card p-3 text-center">
+                        <small class="text-muted">ACTIVE CTRLS</small>
+                        <div id="active-ctrls-val" class="metric-value">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card p-3">
+                <h5 class="card-title">Real-time Controller Load</h5>
+                <canvas id="trafficChart" height="250"></canvas>
+            </div>
+
+            <div id="scaling-alert" class="alert alert-warning d-none scaling-notification" role="alert">
+                <strong>⚠️ Scaling Action:</strong> High load detected! Deploying new controller...
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // API URLs
+    const API_LB = "http://localhost:5000";   // Flask API
+    const API_RYU = "http://localhost:8081";  // Ryu REST API del primer controlador
+
+    // --- ELEMTS OF THE DOM ---
+    const btnMininet = document.getElementById('btn-mininet');
+    const btnUp = document.getElementById('id-btn-up');
+    const btnDown = document.getElementById('id-btn-down');
+    const btnBalancer = document.getElementById('btn-balancer');
+    const btnAttack = document.getElementById('btn-attack');
+    const logConsole = document.getElementById('log-console');
+    const inputPPS = document.getElementById('input-pps');
+    const inputTime = document.getElementById('input-time');
+
+    function addLog(msg) {
+        const time = new Date().toLocaleTimeString().split(' ')[0];
+        logConsole.innerHTML += `<br><span style="color: #888;">[${time}]</span> <span style="color: #00ff00;">></span> ${msg}`;
+        logConsole.scrollTop = logConsole.scrollHeight;
+    }
+
+    // --- BUTTONS ACTIONS ---
+
+    // Mininet Button
+    btnMininet.onclick = () => {
+        fetch(`${API_LB}/init_mininet`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                addLog(data.message);
+                if(data.status === "success"){
+                    btnMininet.disabled = true;
+                    btnUp.disabled = false;
+                    btnDown.disabled = false;
+                    btnBalancer.disabled = false;
+                    btnAttack.disabled = false;
+                }
+            })
+            .catch(err => addLog("Error: Backend offline or unreachable."));
+    };
+
+    // Create Controller Button
+    btnUp.onclick = () => {
+        fetch(`${API_LB}/scale_up`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                addLog(data.message);
+                if (data.count === 1) initDashboard();
+            });
+    };
+
+    // Delete Controller Button
+    btnDown.onclick = () => {
+        fetch(`${API_LB}/scale_down`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => { addLog(data.message);
+            });
+    };
+
+    // Start Load Balancer Button
+    btnBalancer.onclick = () => {
+        fetch(`${API_LB}/init_balancer`, { method: 'POST' })
+            .then(() => {
+                addLog(data.message);
+                btnBalancer.classList.replace('btn-success', 'btn-warning');
+                btnBalancer.innerText = "LB ACTIVE";
+                btnAttack.disabled = false;
+            });
+    };
+
+    // Traffic Generation Button
+    btnAttack.onclick = () => {
+        const pps = inputPPS.value || 100;
+        const duration = inputTime.value || 60;
+        
+        fetch(`${API_LB}/generate_traffic`, { 
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ pps: pps, time: duration })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.status === "error") {
+                addLog(`ERROR: ${data.message}`);
+            } else {
+                addLog(data.message);
+            }
+        });
+    };
+
+    // --- CONFIGURACIÓN DE CHART.JS ---
+    const ctx = document.getElementById('trafficChart').getContext('2d');
+    const trafficChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [] },
+        options: {
+            responsive: true,
+            animation: false,
+            scales: { y: { beginAtZero: true, title: { display: true, text: 'Packets Per Second' } } }
+        }
+    });
+
+    const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6'];
+
+    // --- MONITORIZACIÓN ACTIVA ---
+    function initDashboard() {
+        // Evitar múltiples intervalos si se pulsa + varias veces
+        if (window.dashInterval) clearInterval(window.dashInterval);
+        
+        window.dashInterval = setInterval(() => {
+            updateStatus();
+            updateTopology();
+        }, 2000); 
+    }
+
+    function updateStatus() {
+        fetch(`${API_LB}/status`)
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('avg-load-val').innerText = data.avg_load;
+                document.getElementById('active-ctrls-val').innerText = data.active_controllers.length;
+                
+                const alert = document.getElementById('scaling-alert');
+                data.is_scaling ? alert.classList.remove('d-none') : alert.classList.add('d-none');
+
+                updateChartData(data.individual_rates);
+            }).catch(e => console.error("LB API Offline"));
+    }
+
+    function updateChartData(rates) {
+        const now = new Date().toLocaleTimeString();
+        if (trafficChart.data.labels.length > 20) trafficChart.data.labels.shift();
+        trafficChart.data.labels.push(now);
+
+        Object.entries(rates).forEach(([id, pps], index) => {
+            let dataset = trafficChart.data.datasets.find(d => d.label === `Ryu_${id}`);
+            
+            if (!dataset) {
+                dataset = {
+                    label: `Ryu_${id}`,
+                    data: [],
+                    borderColor: colors[index % colors.length],
+                    tension: 0.4,
+                    fill: false
+                };
+                trafficChart.data.datasets.push(dataset);
+                addLog(`New data line for Ryu_${id} added to chart.`);
+            }
+
+            if (dataset.data.length > 20) dataset.data.shift();
+            dataset.data.push(pps);
+        });
+        trafficChart.update();
+    }
+
+    // --- VIS.JS TOPOLOGY ---
+    let network = null;
+    function updateTopology() {
+        // Consultamos la topología al primer controlador ryu_0
+        fetch(`${API_RYU}/topology`)
+            .then(res => res.json())
+            .then(data => {
+                const container = document.getElementById('topology-container');
+                const visData = {
+                    nodes: new vis.DataSet(data.nodes.map(n => ({
+                        id: n.id,
+                        label: n.label,
+                        shape: n.group === 'host' ? 'dot' : 'box',
+                        color: n.group === 'host' ? '#97c2fc' : '#fb7e81'
+                    }))),
+                    edges: new vis.DataSet(data.edges)
+                };
+                
+                if (!network) {
+                    const options = { physics: { enabled: true, stabilization: true } };
+                    network = new vis.Network(container, visData, options);
+                } else {
+                    network.setData(visData);
+                }
+            }).catch(e => {});
+    }
+</script>
+
+</body>
+</html>
