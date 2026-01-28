@@ -1,10 +1,13 @@
+import threading
 import requests
 import time
 import docker
 import sys
 import subprocess
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from BaseLogger import BaseLogger
+from LoadBalancerAPI import LoadBalancerAPI
 
 class RyuLoadBalancer(BaseLogger):
     """
@@ -36,6 +39,7 @@ class RyuLoadBalancer(BaseLogger):
         self.CURRENT_GEN_ID = 0                  # Generation ID for role requests
         
         super().__init__(log_name="load_balancer", log_level=log_level)
+        self.api = LoadBalancerAPI(self)
 
     # --- OVS FUNCTIONS ---
     def get_all_switches(self):
@@ -317,6 +321,8 @@ class RyuLoadBalancer(BaseLogger):
             None
         """
         self.logger.info("Starting SDN Auto-Scaling Load Balancer")
+        api_thread = threading.Thread(target=self.api.run, daemon=True)
+        api_thread.start()
 
         # 1. Initial State (Start minimum controllers)
         self.start_controller(0)
