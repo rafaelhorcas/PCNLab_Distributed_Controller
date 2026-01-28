@@ -1,21 +1,22 @@
 from ryu.base import app_manager
 from ryu.controller import ofp_event
-from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, DEAD_DISPATCHER, set_ev_cls
-from ryu.lib.packet import packet, ethernet, arp, ipv4, tcp, ether_types
+from ryu.controller.handler import MAIN_DISPATCHER, DEAD_DISPATCHER, set_ev_cls
+from ryu.lib.packet import packet, ethernet, arp, ipv4, ether_types
 from ryu.lib import hub
 from ryu.ofproto import ofproto_v1_3
 from ryu.topology import event as topo_event
-from ryu.app.wsgi import WSGIApplication, ControllerBase, route
-import os
+from ryu.app.wsgi import WSGIApplication
 import networkx as nx
 from controllerRESTAPI import RestAPI
+from BaseLogger import BaseLogger
 
-class Controller(app_manager.RyuApp):
+class Controller(app_manager.RyuApp, BaseLogger):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     _CONTEXTS = {'wsgi': WSGIApplication}
 
     def __init__(self, *args, **kwargs):
         super(Controller, self).__init__(*args, **kwargs)
+        BaseLogger.__init__(self, log_name="controller", log_level="INFO")
         
         # REST API
         wsgi = kwargs['wsgi']
