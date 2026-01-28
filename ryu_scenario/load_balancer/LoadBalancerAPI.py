@@ -1,4 +1,4 @@
-from BaseLogger import BaseLogger
+from ryu_scenario.BaseLogger import BaseLogger
 from flask import Flask, jsonify
 from flask_cors import CORS
 import time

@@ -4,7 +4,7 @@ from mininet.link import TCLink
 from mininet.net import Mininet
 from mininet.node import OVSSwitch, Host, RemoteController
 
-from Topology import ProjectTopology
+from ryu_scenario.Topology import ProjectTopology
 
 class Runner:
 

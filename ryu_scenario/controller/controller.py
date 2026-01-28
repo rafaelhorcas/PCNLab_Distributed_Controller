@@ -8,7 +8,7 @@ from ryu.topology import event as topo_event
 from ryu.app.wsgi import WSGIApplication
 import networkx as nx
 from controllerRESTAPI import RestAPI
-from BaseLogger import BaseLogger
+from ryu_scenario.BaseLogger import BaseLogger
 
 class Controller(app_manager.RyuApp, BaseLogger):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
