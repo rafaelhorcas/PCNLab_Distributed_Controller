@@ -1,3 +1,5 @@
+import os
+import sys
 from ryu.base import app_manager
 from ryu.controller import ofp_event
 from ryu.controller.handler import MAIN_DISPATCHER, DEAD_DISPATCHER, set_ev_cls
@@ -8,7 +10,9 @@ from ryu.topology import event as topo_event
 from ryu.app.wsgi import WSGIApplication
 import networkx as nx
 from controllerRESTAPI import RestAPI
-from ryu_scenario.BaseLogger import BaseLogger
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from BaseLogger import BaseLogger
+ç
 
 class Controller(app_manager.RyuApp, BaseLogger):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]

@@ -1,9 +1,12 @@
-from ryu_scenario.BaseLogger import BaseLogger
+import os
 from flask import Flask, jsonify
 from flask_cors import CORS
 import time
 import threading
 import subprocess
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from BaseLogger import BaseLogger
 
 class LoadBalancerAPI(BaseLogger):
     def __init__(self, load_balancer, log_level="INFO"):

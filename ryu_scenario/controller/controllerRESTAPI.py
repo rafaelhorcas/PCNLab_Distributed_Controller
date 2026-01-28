@@ -1,8 +1,11 @@
+import os
+import sys
 from ryu.app.wsgi import ControllerBase, Response, route
 from ryu.lib import dpid as dpid_lib
 import json
 import networkx as nx
-from ryu_scenario.BaseLogger import BaseLogger
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from BaseLogger import BaseLogger
 
 class RestAPI(ControllerBase, BaseLogger):
 

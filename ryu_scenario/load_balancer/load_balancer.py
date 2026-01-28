@@ -6,7 +6,7 @@ import sys
 import subprocess
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from ryu_scenario.BaseLogger import BaseLogger
+from BaseLogger import BaseLogger
 from LoadBalancerAPI import LoadBalancerAPI
 
 class RyuLoadBalancer(BaseLogger):
