@@ -35,5 +35,5 @@ class Runner:
 
 
 if __name__ == '__main__':
-    exercise = Runner()
-    exercise.run_scenario()
+    ryu_project = Runner()
+    ryu_project.run_scenario()
