@@ -4,5 +4,6 @@ RUN pip install "eventlet==0.30.2" ryu networkx requests
 
 WORKDIR /app
 COPY controller/ .
+COPY BaseLogger.py .
 
 CMD [ "ryu-manager", "controller.py" ]
