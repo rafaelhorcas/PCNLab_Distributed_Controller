@@ -4,14 +4,14 @@ import docker
 import sys
 import subprocess
 import os
+from BaseLogger import BaseLogger
 
-
-class RyuLoadBalancer:
+class RyuLoadBalancer(BaseLogger):
     """
     SDN Load Balancer that manages a cluster of Ryu controllers using Docker.
     It monitors network traffic and scales the number of controllers based on average load.
     """
-    def __init__(self):
+    def __init__(self,log_level="INFO"):
         # --- CONFIGURATION PARAMETERS---
         self.BASE_WS_PORT = 8081                 # Base TCP Port for WebSocket API
         self.BASE_OFP_PORT = 6653                # Base TCP Port for OpenFlow
@@ -34,6 +34,8 @@ class RyuLoadBalancer:
         self.previous_packet_counts = {}         # Previous packet counts per controller
         self.last_scale_action_time = 0          # Timestamp of last scaling action
         self.CURRENT_GEN_ID = 0                  # Generation ID for role requests
+        
+        super().__init__(log_name="load_balancer", log_level=log_level)
 
     # --- OVS FUNCTIONS ---
     def get_all_switches(self):
@@ -86,7 +88,8 @@ class RyuLoadBalancer:
 
     def start_controller(self,controller_ID):
         """
-        Starts a new Ryu controller Docker container. Removes any existing container with the same ID and launches a new one.
+        Starts a new Ryu controller Docker container.
+        Removes any existing container with the same ID and launches a new one.
         
         Args:
             controller_ID (int): Unique identifier for the controller instance.
@@ -119,11 +122,11 @@ class RyuLoadBalancer:
                 ]
             )
             self.active_controllers.add(controller_ID)
-            print(f"\n [DOCKER] Created {name} | OFP_PORT: {ofp_port} | WS_PORT: {ws_port}")
+            self.logger.info(f"\n [DOCKER] Created {name} | OFP_PORT: {ofp_port} | WS_PORT: {ws_port}")
             return True
         
         except Exception as e:
-            print(f" [ERROR] Failed to start {name}: {e}")
+            self.logger.info(f" [ERROR] Failed to start {name}: {e}")
             return False
 
     def stop_controller(self,controller_ID):
@@ -141,10 +144,10 @@ class RyuLoadBalancer:
             if controller_ID in self.active_controllers:
                 self.active_controllers.discard(controller_ID)
                 
-            print(f" [DOCKER] Deleted {name}")
+            self.logger.info(f" [DOCKER] Deleted {name}")
             
         except Exception as e:
-            print(f" [ERROR] Stopping {name}: {e}")
+            self.logger.info(f" [ERROR] Stopping {name}: {e}")
 
         self.active_controllers.discard(controller_ID)
 
@@ -155,7 +158,7 @@ class RyuLoadBalancer:
         Returns:
             None
         """
-        print("\n [EXIT] Cleaning up containers...")
+        self.logger.info("\n [EXIT] Cleaning up containers...")
         for i in list(self.active_controllers):
             self.stop_controller(i)
         sys.exit(0)
@@ -164,7 +167,8 @@ class RyuLoadBalancer:
 
     def get_total_traffic_rate(self):
         """
-        Calculates the aggregate rate of new Packet-In messages across all controllers. Polls the /metrics endpoint of each active controller and computes the delta from the previous observation to determine current PPS.
+        Calculates the aggregate rate of new Packet-In messages across all controllers.
+        Polls the /metrics endpoint of each active controller and computes the delta from the previous observation to determine current PPS.
         
         Returns:
             total_new_packets (int): Sum of new packets across all controllers.
@@ -210,27 +214,26 @@ class RyuLoadBalancer:
         Returns:
             None
         """
-        global last_scale_action_time
         
         if len(self.active_controllers) >= self.MAX_CONTROLLERS:
-            print(" [WARN] MAX CONTROLLERS REACHED. Cannot scale up.")
+            self.logger.info(" [WARN] MAX CONTROLLERS REACHED. Cannot scale up.")
             return
 
         # Calculate next available ID
         new_id = max(self.active_controllers) + 1 if self.active_controllers else 0
-        print(f"\n[SCALING UP] High load detected! Spawning ryu_{new_id}...")
+        self.logger.info(f"\n[SCALING UP] High load detected! Spawning ryu_{new_id}...")
 
         if self.start_controller(new_id):
             # 1. Connect to OVS immediately to receive LLDP
-            print("   -> Updating OVS connections...")
+            self.logger.info("   -> Updating OVS connections...")
             self.update_ovs_connections()
             
             # 2. Warm-up phase (Topology Discovery)
-            print(f"   -> Waiting {self.WARMUP_TIME}s for topology discovery (Warm-up)...")
+            self.logger.info(f"   -> Waiting {self.WARMUP_TIME}s for topology discovery (Warm-up)...")
             time.sleep(self.WARMUP_TIME)
 
             # 3. Rebalance load
-            print("   -> Re-distributing switches...")
+            self.logger.info("   -> Re-distributing switches...")
             self.distribute_switches()
             
             last_scale_action_time = time.time()
@@ -243,21 +246,20 @@ class RyuLoadBalancer:
         Returns:
             None
         """
-        global last_scale_action_time
         
         if len(self.active_controllers) <= self.MIN_CONTROLLERS:
-            print(" [WARN] MIN CONTROLLERS REACHED. Cannot scale down.")
+            self.logger.info(" [WARN] MIN CONTROLLERS REACHED. Cannot scale down.")
             return
 
         # Select victim (Highest ID)
         controller_id = max(self.active_controllers)
-        print(f"\n[SCALING DOWN] Low load detected! Removing ryu_{controller_id}...")
+        self.logger.info(f"\n[SCALING DOWN] Low load detected! Removing ryu_{controller_id}...")
 
         # 1. Remove from active set so distribute_switches ignores it
         self.active_controllers.discard(controller_id)
         
         # 2. Move switches to remaining controllers BEFORE killing the container
-        print(f"   -> Reassigning switches from ryu_{controller_id} to others...")
+        self.logger.info(f"   -> Reassigning switches from ryu_{controller_id} to others...")
         self.distribute_switches()
         
         # 3. Wait a moment for roles to propagate
@@ -267,7 +269,7 @@ class RyuLoadBalancer:
         self.stop_controller(controller_id)
         
         last_scale_action_time = time.time()
-        print(f"   -> COMPLETE. Active controllers: {len(self.active_controllers)}")
+        self.logger.info(f"   -> COMPLETE. Active controllers: {len(self.active_controllers)}")
         
     def distribute_switches(self):
         """
@@ -283,7 +285,7 @@ class RyuLoadBalancer:
 
         if not controllers or not switches: return
         
-        print(f"--- Rebalancing {len(switches)} switches among {len(controllers)} controllers ---")
+        self.logger.info(f"--- Rebalancing {len(switches)} switches among {len(controllers)} controllers ---")
 
         for idx, sw in enumerate(switches):
             # Round Robin Logic
@@ -302,28 +304,28 @@ class RyuLoadBalancer:
                         "generation_id": self.CURRENT_GEN_ID
                     }, timeout=1)
                 except requests.exceptions.RequestException as e:
-                    print(f"Error assigning switch {sw} to controller ryu_{c_id}: {e}")
+                    self.logger.info(f"Error assigning switch {sw} to controller ryu_{c_id}: {e}")
 
     # --- MAIN LOOP ---
 
     def run(self):
         """
-        The main monitoring and decision-making loop of the load balancer. Initializes the base cluster and periodically evaluates average load per controller to trigger scaling actions.
+        The main monitoring and decision-making loop of the load balancer.
+        Initializes the base cluster and periodically evaluates average load per controller to trigger scaling actions.
 
         Returns:
             None
         """
-        global last_scale_action_time
-        print("Starting SDN Auto-Scaling Load Balancer")
+        self.logger.info("Starting SDN Auto-Scaling Load Balancer")
 
         # 1. Initial State (Start minimum controllers)
         self.start_controller(0)
         self.start_controller(1)
         
-        print("Waiting for Mininet initialization...")
+        self.logger.info("Waiting for Mininet initialization...")
         time.sleep(15)
         
-        print("Initial OVS Update...")
+        self.logger.info("Initial OVS Update...")
         self.update_ovs_connections()
         self.distribute_switches()
 
@@ -336,7 +338,7 @@ class RyuLoadBalancer:
                 
                 # Cooldown check
                 if (time.time() - last_scale_action_time) < self.COOLDOWN_TIME:
-                    print(f"Cooldown active... ({int(time.time() - last_scale_action_time)}s / {self.COOLDOWN_TIME}s)")
+                    self.logger.info(f"Cooldown active... ({int(time.time() - last_scale_action_time)}s / {self.COOLDOWN_TIME}s)")
                     continue
 
                 # Get Metrics
@@ -351,22 +353,22 @@ class RyuLoadBalancer:
                 
                 # Formatting status output
                 details_str = " ".join([f"[Ryu_{cid}: {val}]" for cid, val in sorted(rates_map.items())])
-                print(f"Status: {details_str}")
-                print(f"--> SYSTEM TOTAL: {total_packets} pkts | AVG LOAD: {avg_load:.1f} (Target: {self.TARGET_LOAD_PER_CONTROLLER})")
+                self.logger.info(f"Status: {details_str}")
+                self.logger.info(f"--> SYSTEM TOTAL: {total_packets} pkts | AVG LOAD: {avg_load:.1f} (Target: {self.TARGET_LOAD_PER_CONTROLLER})")
                 
                 # Decision Logic
                 if avg_load > self.TARGET_LOAD_PER_CONTROLLER:
-                    print(f"   [!] Average load ({avg_load:.1f}) > Target ({self.TARGET_LOAD_PER_CONTROLLER}) -> SCALING UP")
+                    self.logger.info(f"   [!] Average load ({avg_load:.1f}) > Target ({self.TARGET_LOAD_PER_CONTROLLER}) -> SCALING UP")
                     self.scale_up()
                     self.get_total_traffic_rate() # Reset metrics to avoid double triggers
                     
                 elif avg_load < self.MIN_LOAD_PER_CONTROLLER and num_active > self.MIN_CONTROLLERS:
-                    print(f"   [!] Average load ({avg_load:.1f}) < Min ({self.MIN_LOAD_PER_CONTROLLER}) -> SCALING DOWN")
+                    self.logger.info(f"   [!] Average load ({avg_load:.1f}) < Min ({self.MIN_LOAD_PER_CONTROLLER}) -> SCALING DOWN")
                     self.scale_down()
                     self.get_total_traffic_rate() # Reset metrics
                 
                 else:
-                    print("   [OK] System Stable.")
+                    self.logger.info("   [OK] System Stable.")
 
         except KeyboardInterrupt:
             self.cleanup()
