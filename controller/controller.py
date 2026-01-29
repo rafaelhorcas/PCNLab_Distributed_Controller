@@ -8,15 +8,13 @@ from ryu.topology import event as topo_event
 from ryu.app.wsgi import WSGIApplication
 import networkx as nx
 from controllerRESTAPI import RestAPI
-from BaseLogger import BaseLogger
 
-class Controller(app_manager.RyuApp, BaseLogger):
+class Controller(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     _CONTEXTS = {'wsgi': WSGIApplication}
 
     def __init__(self, *args, **kwargs):
         super(Controller, self).__init__(*args, **kwargs)
-        BaseLogger.__init__(self, log_name="controller", log_level="INFO")
         
         # REST API
         wsgi = kwargs['wsgi']
@@ -197,7 +195,7 @@ class Controller(app_manager.RyuApp, BaseLogger):
                 match = parser.OFPMatch(eth_type=ethertype, ipv4_src=src_ip, ipv4_dst=dst_ip)
             
             self.add_flow(dp=datapath, table=self.DEFAULT_TABLE, priority=self.HIGH_PRIORITY, 
-                        match=match, actions=actions, i_tout=10)
+                        match=match, actions=actions, i_tout=1)
 
         # Send the packet out
         data = None
@@ -220,7 +218,7 @@ class Controller(app_manager.RyuApp, BaseLogger):
         self.datapaths[dpid] = datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-        '''
+        
         # A. SET ASYNC MESSAGES
         packet_in_mask = [
             ofproto.OFPR_NO_MATCH | ofproto.OFPR_ACTION | ofproto.OFPR_INVALID_TTL,
@@ -232,9 +230,9 @@ class Controller(app_manager.RyuApp, BaseLogger):
         ]
         req_async = parser.OFPSetAsync(datapath, packet_in_mask, port_status_mask, [0,0])
         datapath.send_msg(req_async)
-        '''
+        
         # B. DEFAULT ROLE: EQUAL
-        self.switches_roles[dpid] = "EQUAL"
+        self.switches_roles[dpid] = "SLAVE"
 
     def set_role(self, dpid, role_str, gen_id):
         if dpid not in self.datapaths: return False

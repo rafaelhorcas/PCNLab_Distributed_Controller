@@ -2,14 +2,12 @@ from ryu.app.wsgi import ControllerBase, Response, route
 from ryu.lib import dpid as dpid_lib
 import json
 import networkx as nx
-from BaseLogger import BaseLogger
 
-class RestAPI(ControllerBase, BaseLogger):
+class RestAPI(ControllerBase):
 
     def __init__(self, req, link, data, **config):
         super().__init__(req, link, data, **config)
         self.app = data['controller_app']
-        BaseLogger.__init__(self, log_name="api_rest", log_level="DEBUG")
 
     @route('metrics', '/metrics', methods=['GET'])
     def get_metrics(self, req, **kwargs):
