@@ -1,5 +1,3 @@
-import os
-import sys
 from ryu.base import app_manager
 from ryu.controller import ofp_event
 from ryu.controller.handler import MAIN_DISPATCHER, DEAD_DISPATCHER, set_ev_cls
@@ -10,7 +8,9 @@ from ryu.topology import event as topo_event
 from ryu.app.wsgi import WSGIApplication
 import networkx as nx
 from controllerRESTAPI import RestAPI
+import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 
 class Controller(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -221,7 +221,7 @@ class Controller(app_manager.RyuApp):
         self.datapaths[dpid] = datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-        '''
+        
         # A. SET ASYNC MESSAGES
         packet_in_mask = [
             ofproto.OFPR_NO_MATCH | ofproto.OFPR_ACTION | ofproto.OFPR_INVALID_TTL,
@@ -233,9 +233,9 @@ class Controller(app_manager.RyuApp):
         ]
         req_async = parser.OFPSetAsync(datapath, packet_in_mask, port_status_mask, [0,0])
         datapath.send_msg(req_async)
-        '''
+        
         # B. DEFAULT ROLE: EQUAL
-        self.switches_roles[dpid] = "EQUAL"
+        self.switches_roles[dpid] = "SLAVE"
 
     def set_role(self, dpid, role_str, gen_id):
         if dpid not in self.datapaths: return False

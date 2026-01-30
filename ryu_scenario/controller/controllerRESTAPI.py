@@ -4,7 +4,6 @@ from ryu.app.wsgi import ControllerBase, Response, route
 from ryu.lib import dpid as dpid_lib
 import json
 import networkx as nx
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 class RestAPI(ControllerBase):
 
@@ -55,6 +54,37 @@ class RestAPI(ControllerBase):
         
         return Response(
             content_type='application/json',
+            body=json.dumps(body)
+        )
+        
+    @route('topology', '/topology', methods=['GET'])
+    def get_topology(self, req, **kwargs):
+        # Extraemos los nodos del grafo networkx de la aplicación principal
+        nodes = []
+        for node_id, data in self.app.network.nodes(data=True):
+            # Formateamos el nodo para vis.js
+            nodes.append({
+                'id': node_id,
+                'label': data.get('name', str(node_id)),
+                'group': data.get('type', 'switch') # 'switch' o 'host'
+            })
+
+        # Extraemos los enlaces (edges)
+        edges = []
+        for src, dst in self.app.network.edges():
+            edges.append({
+                'from': src,
+                'to': dst
+            })
+
+        body = {
+            'nodes': nodes,
+            'edges': edges
+        }
+
+        return Response(
+            content_type='application/json',
+            headers={'Access-Control-Allow-Origin': '*'},
             body=json.dumps(body)
         )
 
