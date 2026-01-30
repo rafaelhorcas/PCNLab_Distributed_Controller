@@ -129,19 +129,37 @@
 
     // Mininet Button
     btnMininet.onclick = () => {
-        fetch(`${API_LB}/init_mininet`, { method: 'POST' })
-            .then(res => res.json())
-            .then(data => {
-                addLog(data.message);
-                if(data.status === "success"){
-                    btnMininet.disabled = true;
-                    btnUp.disabled = false;
-                    btnDown.disabled = false;
-                    btnBalancer.disabled = false;
-                    btnAttack.disabled = false;
-                }
-            })
-            .catch(err => addLog("Error: Backend offline or unreachable."));
+        if (btnMininet.innerText.includes("START")) {
+            fetch(`${API_LB}/init_mininet`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    addLog(data.message);
+                    if(data.status === "success"){
+                        btnUp.disabled = false;
+                        btnDown.disabled = false;
+                        btnBalancer.disabled = false;
+                        btnAttack.disabled = false;
+
+                        btnMininet.innerText = "STOP MININET";
+                        btnMininet.classList.replace('btn-primary', 'btn-danger');
+                    
+                    }
+                })
+                .catch(err => addLog("Error: Backend offline or unreachable."));
+            }
+        else {
+            fetch(`${API_LB}/stop_mininet`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    addLog(data.message);
+                    btnUp.disabled = true;
+                    btnDown.disabled = true;
+                    btnBalancer.disabled = true;
+                    btnAttack.disabled = true;
+                    clearInterval(window.dashInterval);
+                })
+                .catch(err => addLog("System shutting down..."));
+            }
     };
 
     // Create Controller Button
@@ -150,7 +168,7 @@
             .then(res => res.json())
             .then(data => {
                 addLog(data.message);
-                if (data.count === 1) initDashboard();
+                initDashboard();
             });
     };
 
@@ -165,7 +183,8 @@
     // Start Load Balancer Button
     btnBalancer.onclick = () => {
         fetch(`${API_LB}/init_balancer`, { method: 'POST' })
-            .then(() => {
+            .then(res => res.json())
+            .then(data => {
                 addLog(data.message);
                 btnBalancer.classList.replace('btn-success', 'btn-warning');
                 btnBalancer.innerText = "LB ACTIVE";
@@ -261,7 +280,6 @@
     // --- VIS.JS TOPOLOGY ---
     let network = null;
     function updateTopology() {
-        // Consultamos la topología al primer controlador ryu_0
         fetch(`${API_RYU}/topology`)
             .then(res => res.json())
             .then(data => {
@@ -277,12 +295,28 @@
                 };
                 
                 if (!network) {
-                    const options = { physics: { enabled: true, stabilization: true } };
+                    const options = { 
+                        // 1. ESTO ES LO QUE EVITA LA ROTACIÓN
+                        layout: {
+                            randomSeed: 2 // Puedes poner cualquier número, pero que sea fijo
+                        },
+                        physics: { 
+                            enabled: true, 
+                            stabilization: true,
+                            // Opcional: El solver 'barnesHut' suele ser más estable para redes SDN
+                            solver: 'barnesHut',
+                            barnesHut: {
+                                gravitationalConstant: -2000,
+                                springConstant: 0.04,
+                                springLength: 95
+                            }
+                        } 
+                    };
                     network = new vis.Network(container, visData, options);
                 } else {
                     network.setData(visData);
                 }
-            }).catch(e => {});
+            }).catch(e => console.error("Error cargando topología:", e));
     }
 </script>
 
