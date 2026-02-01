@@ -14,7 +14,7 @@ class RyuLoadBalancer(BaseLogger):
     SDN Load Balancer that manages a cluster of Ryu controllers using Docker.
     It monitors network traffic and scales the number of controllers based on average load.
     """
-    def __init__(self,log_level="INFO"):
+    def __init__(self,log_level="DEBUG"):
         # Logger Initialization
         super().__init__(log_name="load_balancer", log_level=log_level)
         
@@ -268,8 +268,8 @@ class RyuLoadBalancer(BaseLogger):
                 
             except Exception as e:
                 continue
-            
-        self._handle_failover(dead_controllers)
+        if not self.is_scaling:
+            self._handle_failover(dead_controllers)   
         
         return total_pps, controller_rates
             
@@ -278,6 +278,7 @@ class RyuLoadBalancer(BaseLogger):
         Spawns an additional controller and redistributes switches.
         """
         try:
+            self.is_scaling = True
             if len(self.active_controllers) >= self.MAX_CONTROLLERS:
                 self.logger.warning(" [WARN] MAX CONTROLLERS REACHED. Cannot scale up.")
                 return
@@ -291,9 +292,9 @@ class RyuLoadBalancer(BaseLogger):
                 
                 self.logger.debug(f"Waiting Warm-up time ({self.WARMUP_TIME}s) ")
                 time.sleep(self.WARMUP_TIME)
-                
-                self.logger.debug("Re-distributing switches...")
-                self.distribute_switches()
+                if self.auto_mode or len(self.active_controllers) == 1:
+                    self.logger.debug("Re-distributing switches...")
+                    self.distribute_switches()
                 
                 self.last_scale_action_time = time.time()
                 
@@ -310,6 +311,7 @@ class RyuLoadBalancer(BaseLogger):
         Removes a controller from the cluster and redistributes switches.
         """
         try:
+            self.is_scaling = True
             if len(self.active_controllers) <= self.MIN_CONTROLLERS:
                 self.logger.warning(" [WARN] MIN CONTROLLERS REACHED. Cannot scale down.")
                 return
