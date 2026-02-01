@@ -2,7 +2,9 @@ import logging
 import os
 
 class CustomFormatter(logging.Formatter):
-    """Handles colors and formatting for the logger output."""
+    """
+    Handles colors and formatting for the logger output.
+    """
 
     def __init__(self):
         
@@ -18,7 +20,9 @@ class CustomFormatter(logging.Formatter):
         self.log_fmt = f"%(asctime)s - %(levelname)s - %(name)s - %(message)s (%(filename)s:%(lineno)d)"
 
     def format(self, record):
-        """Format the logger."""
+        """
+        Format the logger.
+        """
 
         # Select color based on level
         level_colors = {

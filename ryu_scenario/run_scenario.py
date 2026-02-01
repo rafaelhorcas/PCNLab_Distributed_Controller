@@ -2,7 +2,7 @@ from time import sleep
 from mininet.cli import CLI
 from mininet.link import TCLink
 from mininet.net import Mininet
-from mininet.node import OVSSwitch, Host, RemoteController
+from mininet.node import OVSSwitch, Host
 
 from Topology import ProjectTopology
 
@@ -17,11 +17,11 @@ class Runner:
         #self.do_net_cli()
         # stop right after the CLI is exited
         try:
-            # Bucle infinito para que el proceso no termine
+
             while True:
                 sleep(1)
         except KeyboardInterrupt:
-            # Solo se ejecuta cuando se detiene el proceso
+
             print("Stopping Mininet...")
             self.net.stop()
 

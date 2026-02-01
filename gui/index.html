@@ -86,7 +86,7 @@
                 </div>
                 <div class="col-6">
                     <div class="card p-3 text-center">
-                        <small class="text-muted">ACTIVE CTRLS</small>
+                        <small class="text-muted">ACTIVE CONTROLLERS</small>
                         <div id="active-ctrls-val" class="metric-value">0</div>
                     </div>
                 </div>
@@ -107,7 +107,7 @@
 <script>
     // API URLs
     const API_LB = "http://localhost:5000";   // Flask API
-    const API_RYU = "http://localhost:8081";  // Ryu REST API del primer controlador
+    const API_RYU = "http://localhost:8081";  // Ryu REST API
 
     // --- ELEMTS OF THE DOM ---
     const btnMininet = document.getElementById('btn-mininet');
@@ -212,7 +212,7 @@
         });
     };
 
-    // --- CONFIGURACIÓN DE CHART.JS ---
+    // --- Chart.js CONFIGURATION ---
     const ctx = document.getElementById('trafficChart').getContext('2d');
     const trafficChart = new Chart(ctx, {
         type: 'line',
@@ -226,9 +226,8 @@
 
     const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6'];
 
-    // --- MONITORIZACIÓN ACTIVA ---
+    // --- MONITORIZATION ---
     function initDashboard() {
-        // Evitar múltiples intervalos si se pulsa + varias veces
         if (window.dashInterval) clearInterval(window.dashInterval);
         
         window.dashInterval = setInterval(() => {
@@ -295,15 +294,13 @@
                 };
                 
                 if (!network) {
-                    const options = { 
-                        // 1. ESTO ES LO QUE EVITA LA ROTACIÓN
+                    const options = {
                         layout: {
-                            randomSeed: 2 // Puedes poner cualquier número, pero que sea fijo
+                            randomSeed: 2 
                         },
                         physics: { 
                             enabled: true, 
                             stabilization: true,
-                            // Opcional: El solver 'barnesHut' suele ser más estable para redes SDN
                             solver: 'barnesHut',
                             barnesHut: {
                                 gravitationalConstant: -2000,

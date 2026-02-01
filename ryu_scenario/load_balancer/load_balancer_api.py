@@ -11,8 +11,9 @@ import signal
 
 class LoadBalancerAPI():
     """
-    REST API to bridge the Web Dashboard and the SDN Load Balancer.
-    Handles the execution of Mininet, Controller startup, and Traffic Generation.
+    REST API to bridge the GUI and the SDN Load Balancer.
+    Handles the execution of Mininet, Controller startup, and Traffic Generation,
+    and exposes the system status to the frontend.
     """
     def __init__(self, load_balancer):
         # Load Balancer Instance
@@ -31,7 +32,9 @@ class LoadBalancerAPI():
             Executes the Mininet topology in a separate subprocess.
             
             Returns:
-                dict: JSON response with status and message
+                Response: A JSON response containing:
+                    - status (str): 'success' or 'error'.
+                    - message (str): Description of the result.
             """
             self.balancer.logger.info(" [API] Initializing Mininet Scenario")
             
@@ -46,14 +49,17 @@ class LoadBalancerAPI():
         @self.app.route('/stop_mininet', methods=['POST'])
         def stop_mininet():
             """
-            Stops the Mininet scenario by killing the process.
+            Stops the Mininet scenario and shuts down the application.
             
             Returns:
-                dict: JSON response with status and message
+                Response: A JSON response containing:
+                    - status (str): 'success' or 'error'.
+                    - message (str): Description of the result.
             """
             self.balancer.logger.info(" [API] Stopping Mininet Scenario")
             
             try:
+                subprocess.run("sudo mn -c", shell=True)
                 os.kill(os.getpid(), signal.SIGINT)
                 return jsonify({"status": "success", "message": "Mininet stopped successfully"})
             
@@ -67,7 +73,9 @@ class LoadBalancerAPI():
             Spawns the base cluster with one controller instance.
             
             Returns:
-                dict: JSON response with status and message
+                Response: A JSON response containing:
+                    - status (str): 'success'.
+                    - message (str): Status message with active controller list.
             """
             self.balancer.logger.info(" [API] Starting Controller Cluster")
             self.balancer.start_controller(0)
@@ -80,7 +88,9 @@ class LoadBalancerAPI():
             Creates a new controller instance.
 
             Returns:
-                dict: JSON response with status and message
+                Response: A JSON response containing:
+                    - status (str): 'success'.
+                    - message (str): Status message with active controller list.
             """
             self.balancer.logger.info(" [API] Create New Controller")
             self.balancer.scale_up()
@@ -93,7 +103,9 @@ class LoadBalancerAPI():
             Deletes a controller instance
 
             Returns:
-                dict: JSON response with status and message
+                Response: A JSON response containing:
+                    - status (str): 'success'.
+                    - message (str): Status message with active controller list.
             """
             self.balancer.logger.info(" [API] Remove Controller")
             self.balancer.scale_down()
@@ -106,7 +118,9 @@ class LoadBalancerAPI():
             Initiates the balancing capabilities
 
             Returns:
-                dict: JSON response with status and message
+                Response: A JSON response containing:
+                    - status (str): 'success'.
+                    - message (str): Status message indicating the load balancer is active.
             """
             self.balancer.logger.info(" [API]Load Balancer Activated")
             
@@ -123,7 +137,12 @@ class LoadBalancerAPI():
             Returns real-time metrics for the charts and status indicators.
             
             Returns:
-                dict: JSON response with current load balancer status
+                Response: A JSON response containing:
+                    - active_controllers (list): List of active controller IDs.
+                    - avg_load (float): Current average PPS load per controller.
+                    - individual_rates (dict): Map of {controller_id: pps}.
+                    - is_scaling (bool): True if the system is in cooldown/scaling state.
+                    - max_controllers (int): The configured maximum limit.
             """
             return jsonify({
                 "active_controllers": sorted(list(self.balancer.active_controllers)),
@@ -139,7 +158,9 @@ class LoadBalancerAPI():
             Launches the traffic generator script on host m_p1.
             
             Returns:
-                dict: JSON response with status and message
+                Response: A JSON response containing:
+                    - status (str): 'success' or 'error'.
+                    - message (str): Description of the result.
             """
             
             data = request.get_json()

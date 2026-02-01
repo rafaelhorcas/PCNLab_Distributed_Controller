@@ -1,11 +1,11 @@
-import os
-import sys
 from ryu.app.wsgi import ControllerBase, Response, route
-from ryu.lib import dpid as dpid_lib
 import json
-import networkx as nx
 
 class RestAPI(ControllerBase):
+    """
+    REST API controller for the Ryu application.
+    Exposes endpoints for monitoring metrics, managing switch roles, and retrieving topology data.
+    """
 
     def __init__(self, req, link, data, **config):
         super().__init__(req, link, data, **config)
@@ -13,6 +13,17 @@ class RestAPI(ControllerBase):
 
     @route('metrics', '/metrics', methods=['GET'])
     def get_metrics(self, req, **kwargs):
+        """
+        Retrieves the current performance metrics of the controller.
+
+        Args:
+            req: The HTTP request object.
+
+        Returns:
+            Response: A JSON response containing:
+                - packet_in_count (int): Total number of Packet-In messages processed.
+                - switches (list): List of datapath IDs (DPIDs) currently connected.
+        """
         body = {
             'packet_in_count': self.app.packet_in_count,
             'switches': list(self.app.datapaths.keys())
@@ -24,6 +35,22 @@ class RestAPI(ControllerBase):
 
     @route('role', '/role', methods=['POST'])
     def set_role(self, req, **kwargs):
+        """
+        Updates the OpenFlow role (MASTER/SLAVE) for a specific switch.
+
+        Expects a JSON body with:
+            - dpid (int): The Datapath ID of the switch.
+            - role (str): The desired role ('MASTER' or 'SLAVE').
+            - generation_id (int, optional): The generation ID for the role request.
+
+        Args:
+            req: The HTTP request object containing the JSON body.
+
+        Returns:
+            Response: 
+                - 200 OK: If the role was successfully updated.
+                - 404 Not Found: If the switch is not connected.
+        """
         data = json.loads(req.body)
 
         dpid = int(data['dpid'])
@@ -43,6 +70,19 @@ class RestAPI(ControllerBase):
 
     @route('roles', '/roles', methods=['GET'])
     def get_roles(self, req, **kwargs):
+        """
+        Retrieves the current role status for all connected switches.
+
+        Args:
+            req: The HTTP request object.
+
+        Returns:
+            Response: A JSON response containing:
+                - controller_id (int): Memory address ID of the controller instance.
+                - packet_in_count (int): Total Packet-In messages processed.
+                - switches_connected (list): List of connected DPIDs.
+                - roles_table (dict): Mapping of DPID to current Role (MASTER/SLAVE).
+        """
         connected_dpids = list(self.app.datapaths.keys())
         roles_map = self.app.switches_roles.copy()
         body = {
@@ -59,17 +99,28 @@ class RestAPI(ControllerBase):
         
     @route('topology', '/topology', methods=['GET'])
     def get_topology(self, req, **kwargs):
-        # Extraemos los nodos del grafo networkx de la aplicación principal
+        """
+        Extracts the network topology graph for visualization purposes.
+        
+        Converts the internal NetworkX graph into a JSON format suitable for 
+        frontend libraries like Vis.js.
+
+        Args:
+            req: The HTTP request object.
+
+        Returns:
+            Response: A JSON response containing 'nodes' and 'edges' lists.
+        """
+        # Extract the nodes
         nodes = []
         for node_id, data in self.app.network.nodes(data=True):
-            # Formateamos el nodo para vis.js
             nodes.append({
                 'id': node_id,
                 'label': data.get('name', str(node_id)),
-                'group': data.get('type', 'switch') # 'switch' o 'host'
+                'group': data.get('type', 'switch')
             })
 
-        # Extraemos los enlaces (edges)
+        # Extract the edges
         edges = []
         for src, dst in self.app.network.edges():
             edges.append({
