@@ -60,7 +60,13 @@ class LoadBalancerAPI():
             
             try:
                 subprocess.run("sudo mn -c", shell=True)
-                os.kill(os.getpid(), signal.SIGINT)
+                for c_id in list(self.balancer.active_controllers):
+                    self.balancer.stop_controller(c_id)
+                
+                self.balancer.active_controllers.clear()
+                self.balancer.current_avg_load = 0
+                self.balancer.monitoring_active = False
+               
                 return jsonify({"status": "success", "message": "Mininet stopped successfully"})
             
             except Exception as e:
@@ -78,8 +84,8 @@ class LoadBalancerAPI():
                     - message (str): Status message with active controller list.
             """
             self.balancer.logger.info(" [API] Starting Controller Cluster")
-            self.balancer.start_controller(0)
-            
+            self.balancer.scale_up()
+            self.balancer.monitoring_active = True
             return jsonify({"status": "success", "message": f" Cluster created. Active Controllers: {sorted(list(self.balancer.active_controllers))}"})
                 
         @self.app.route('/scale_up', methods=['POST'])
@@ -126,10 +132,24 @@ class LoadBalancerAPI():
             
             self.balancer.update_ovs_connections()
             self.balancer.distribute_switches()
-            self.balancer.monitoring_active = True
             self.balancer.auto_mode = True 
             
             return jsonify({"status": "success", "message": "Load Balancer is now active"})
+        
+        @self.app.route('/stop_balancer', methods=['POST'])
+        def stop_balancer():
+            """
+            Stops the load balancer.
+
+            Returns:
+                Response: A JSON response containing:
+                    - status (str): 'success'.
+                    - message (str): Status message indicating the load balancer is stopped.
+            """
+            self.balancer.logger.info(" [API]Load Balancer Stopped")
+            self.balancer.auto_mode = False 
+            
+            return jsonify({"status": "success", "message": "Load Balancer is now stopped"})
 
         @self.app.route('/status', methods=['GET'])
         def get_status():
@@ -143,13 +163,15 @@ class LoadBalancerAPI():
                     - individual_rates (dict): Map of {controller_id: pps}.
                     - is_scaling (bool): True if the system is in cooldown/scaling state.
                     - max_controllers (int): The configured maximum limit.
+                    - auto_mode (bool): True if the load balancer is in automatic mode.
             """
             return jsonify({
                 "active_controllers": sorted(list(self.balancer.active_controllers)),
                 "avg_load": round(self.balancer.current_avg_load, 2),
                 "individual_rates": self.balancer.current_rates,
                 "is_scaling": (time.time() - self.balancer.last_scale_action_time) < self.balancer.COOLDOWN_TIME,
-                "max_controllers": self.balancer.MAX_CONTROLLERS
+                "max_controllers": self.balancer.MAX_CONTROLLERS,
+                "auto_mode": self.balancer.auto_mode
             })
 
         @self.app.route('/generate_traffic', methods=['POST'])
