@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ryu Controller Load Balancer</title>
-    
+    <link rel="icon" href="data:;base64,=">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css" rel="stylesheet" type="text/css" />
@@ -18,7 +18,6 @@
         .btn-step { width: 100%; margin-bottom: 15px; padding: 12px; text-align: left; font-weight: 600; transition: 0.3s; }
         .btn-step:disabled { opacity: 0.4; cursor: not-allowed; }
         .metric-value { font-size: 1.5rem; font-weight: bold; color: #2c3e50; }
-        .scaling-notification { animation: pulse 2s infinite; }
         .btn-square {width: 35px; height: 35px; display: flex; align-items: center; justify-content: center; padding: 0; font-size: 1.3rem;}
         .controller-box {border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 10px;  background: rgba(255, 255, 255, 0.05);}
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
@@ -71,7 +70,7 @@
 
         <div class="col-md-5 p-4">
             <div class="card p-3">
-                <h5 class="card-title">Network Topology Map</h5>
+                <h5 class="card-title text-center fw-bold text-uppercase" style="letter-spacing: 1px;">Network Topology Map</h5>
                 <div id="topology-container"></div>
             </div>
         </div>
@@ -97,8 +96,8 @@
                 <canvas id="trafficChart" height="250"></canvas>
             </div>
 
-            <div id="scaling-alert" class="alert alert-warning d-none scaling-notification" role="alert">
-                <strong>⚠️ Scaling Action:</strong> High load detected! Deploying new controller...
+            <div id="action-alert" class="alert alert-info d-none fade show" role="alert">
+                <strong id="action-alert-msg">System update...</strong>
             </div>
         </div>
     </div>
@@ -125,6 +124,16 @@
         logConsole.scrollTop = logConsole.scrollHeight;
     }
 
+    function showActionAlert(msg) {
+        const alertBox = document.getElementById('action-alert');
+        const alertMsg = document.getElementById('action-alert-msg');
+        alertMsg.innerText = msg;
+        alertBox.classList.remove('d-none');
+
+        setTimeout(() => {
+            alertBox.classList.add('d-none');
+        }, 3000);
+    }
     // --- BUTTONS ACTIONS ---
 
     // Mininet Button
@@ -157,6 +166,13 @@
                     btnBalancer.disabled = true;
                     btnAttack.disabled = true;
                     clearInterval(window.dashInterval);
+
+                    btnMininet.innerText = "START MININET";
+                    btnMininet.classList.replace('btn-danger', 'btn-primary');
+                    if (btnBalancer.classList.contains('btn-warning')) {
+                        btnBalancer.classList.replace('btn-warning', 'btn-success');
+                        btnBalancer.innerText = "LOAD BALANCER";
+                    }
                 })
                 .catch(err => addLog("System shutting down..."));
             }
@@ -164,12 +180,29 @@
 
     // Create Controller Button
     btnUp.onclick = () => {
-        fetch(`${API_LB}/scale_up`, { method: 'POST' })
-            .then(res => res.json())
-            .then(data => {
-                addLog(data.message);
-                initDashboard();
-            });
+
+        btnUp.disabled = true;
+        addLog("Initializing new controller... please wait.");
+
+        showActionAlert("Creating Controller... ");
+        
+        fetch(`${API_LB}/status`)
+        .then(res => res.json())
+        .then(statusData => {
+            const endpoint = (statusData.active_controllers.length === 0) ? '/init_controllers' : '/scale_up';
+            
+            fetch(`${API_LB}${endpoint}`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    addLog(data.message);
+                    btnUp.disabled = false;
+
+                    showActionAlert("Controller created");
+                    if (endpoint === '/init_controllers') {
+                        initDashboard();
+                    }
+                });
+        });
     };
 
     // Delete Controller Button
@@ -182,20 +215,36 @@
 
     // Start Load Balancer Button
     btnBalancer.onclick = () => {
-        fetch(`${API_LB}/init_balancer`, { method: 'POST' })
-            .then(res => res.json())
-            .then(data => {
-                addLog(data.message);
-                btnBalancer.classList.replace('btn-success', 'btn-warning');
-                btnBalancer.innerText = "LB ACTIVE";
-                btnAttack.disabled = false;
-            });
+
+        if (btnBalancer.innerText.includes("LB ACTIVE")) {
+            fetch(`${API_LB}/stop_balancer`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    addLog(data.message);
+                    btnBalancer.classList.replace('btn-warning', 'btn-success');
+                    btnBalancer.innerText = "START LOAD BALANCER";
+                });
+        } 
+        else {
+            fetch(`${API_LB}/init_balancer`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    addLog(data.message);
+                    btnBalancer.classList.replace('btn-success', 'btn-warning');
+                    btnBalancer.innerText = "LB ACTIVE";
+                    btnAttack.disabled = false;
+                });
+        }
     };
 
     // Traffic Generation Button
     btnAttack.onclick = () => {
         const pps = inputPPS.value || 100;
         const duration = inputTime.value || 60;
+
+        btnAttack.disabled = true;
+        btnAttack.innerText = "TRAFFIC RUNNING...";
+        addLog(`Injecting traffic (${pps} PPS) for ${duration}s...`);
         
         fetch(`${API_LB}/generate_traffic`, { 
             method: 'POST',
@@ -206,12 +255,19 @@
         .then(data => {
             if(data.status === "error") {
                 addLog(`ERROR: ${data.message}`);
+                btnAttack.disabled = false;
+                btnAttack.innerText = "GENERATE TRAFFIC";
             } else {
                 addLog(data.message);
+                setTimeout(() => {
+                    btnAttack.disabled = false;
+                    btnAttack.innerText = "GENERATE TRAFFIC";
+                    addLog("Traffic generation finished.");
+                }, duration * 1000);
             }
         });
     };
-
+    
     // --- Chart.js CONFIGURATION ---
     const ctx = document.getElementById('trafficChart').getContext('2d');
     const trafficChart = new Chart(ctx, {
@@ -229,11 +285,14 @@
     // --- MONITORIZATION ---
     function initDashboard() {
         if (window.dashInterval) clearInterval(window.dashInterval);
-        
+
+        trafficChart.data.labels = [];
+        trafficChart.data.datasets = []; 
+        trafficChart.update();
         window.dashInterval = setInterval(() => {
             updateStatus();
             updateTopology();
-        }, 2000); 
+        }, 1000); 
     }
 
     function updateStatus() {
@@ -242,11 +301,14 @@
             .then(data => {
                 document.getElementById('avg-load-val').innerText = data.avg_load;
                 document.getElementById('active-ctrls-val').innerText = data.active_controllers.length;
-                
-                const alert = document.getElementById('scaling-alert');
-                data.is_scaling ? alert.classList.remove('d-none') : alert.classList.add('d-none');
-
                 updateChartData(data.individual_rates);
+                const alert = document.getElementById('action-alert');
+                if (data.auto_mode === true && data.is_scaling === true) {
+                    alert.classList.remove('d-none');
+                } else {
+                    alert.classList.add('d-none');
+                }
+                
             }).catch(e => console.error("LB API Offline"));
     }
 
@@ -259,9 +321,10 @@
             let dataset = trafficChart.data.datasets.find(d => d.label === `Ryu_${id}`);
             
             if (!dataset) {
+                const historicalPadding = new Array(trafficChart.data.labels.length - 1).fill(0);
                 dataset = {
                     label: `Ryu_${id}`,
-                    data: [],
+                    data: historicalPadding,
                     borderColor: colors[index % colors.length],
                     tension: 0.4,
                     fill: false
@@ -277,43 +340,47 @@
     }
 
     // --- VIS.JS TOPOLOGY ---
+    const nodes = new vis.DataSet([]);
+    const edges = new vis.DataSet([]);
     let network = null;
     function updateTopology() {
         fetch(`${API_RYU}/topology`)
             .then(res => res.json())
             .then(data => {
                 const container = document.getElementById('topology-container');
-                const visData = {
-                    nodes: new vis.DataSet(data.nodes.map(n => ({
-                        id: n.id,
-                        label: n.label,
-                        shape: n.group === 'host' ? 'dot' : 'box',
-                        color: n.group === 'host' ? '#97c2fc' : '#fb7e81'
-                    }))),
-                    edges: new vis.DataSet(data.edges)
-                };
+                
+                const newNodes = data.nodes.map(n => ({
+                    id: n.id,
+                    label: n.label,
+                    group: n.group,
+                    shape: n.group === 'host' ? 'dot' : 'box',
+                    color: n.group === 'host' ? '#97c2fc' : '#fb7e81'
+                }));
+                
+                const newEdges = data.edges.map(e => ({
+                    id: `${e.from}-${e.to}`, 
+                    from: e.from,
+                    to: e.to
+                }));
+
+                nodes.update(newNodes);
+                edges.update(newEdges);
                 
                 if (!network) {
-                    const options = {
-                        layout: {
-                            randomSeed: 2 
-                        },
+                    const visData = { nodes: nodes, edges: edges };
+                    const options = { 
+                        layout: { randomSeed: 2 },
                         physics: { 
-                            enabled: true, 
-                            stabilization: true,
+                            enabled: true,
                             solver: 'barnesHut',
-                            barnesHut: {
-                                gravitationalConstant: -2000,
-                                springConstant: 0.04,
-                                springLength: 95
-                            }
+                            barnesHut: { gravitationalConstant: -3000, springLength: 25, springConstant: 0.04 },
+                            stabilization: { iterations: 200 }
                         } 
                     };
                     network = new vis.Network(container, visData, options);
-                } else {
-                    network.setData(visData);
                 }
-            }).catch(e => console.error("Error cargando topología:", e));
+            })
+            .catch(e => {});
     }
 </script>
 
