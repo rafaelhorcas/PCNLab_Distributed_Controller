@@ -7,7 +7,7 @@ from ryu.ofproto import ofproto_v1_3
 from ryu.topology import event as topo_event
 from ryu.app.wsgi import WSGIApplication
 import networkx as nx
-from controllerRESTAPI import RestAPI
+from controller_api import RestAPI
 import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
