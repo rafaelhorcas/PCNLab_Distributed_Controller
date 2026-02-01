@@ -302,11 +302,17 @@
                 document.getElementById('avg-load-val').innerText = data.avg_load;
                 document.getElementById('active-ctrls-val').innerText = data.active_controllers.length;
                 updateChartData(data.individual_rates);
-                const alert = document.getElementById('action-alert');
-                if (data.auto_mode === true && data.is_scaling === true) {
-                    alert.classList.remove('d-none');
+
+                const alertBox = document.getElementById('action-alert'); 
+                const alertMsg = document.getElementById('action-alert-msg');
+
+                if (data.scaling_msg) {
+                    alertMsg.innerText = data.scaling_msg; 
+                    alertBox.classList.remove('d-none');
                 } else {
-                    alert.classList.add('d-none');
+                    if (data.auto_mode){
+                        alertBox.classList.add('d-none');
+                    }
                 }
                 
             }).catch(e => console.error("LB API Offline"));
@@ -334,8 +340,12 @@
             }
 
             if (dataset.data.length > 20) dataset.data.shift();
-            dataset.data.push(pps);
+            dataset.data.push(pps < 0 ? 0 : pps);
         });
+        const activeLabels = Object.keys(rates).map(id => `Ryu_${id}`);
+        trafficChart.data.datasets = trafficChart.data.datasets.filter(d => activeLabels.includes(d.label));
+        
+        trafficChart.update();
         trafficChart.update();
     }
 

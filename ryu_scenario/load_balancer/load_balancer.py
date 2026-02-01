@@ -48,9 +48,9 @@ class RyuLoadBalancer(BaseLogger):
         
         # GUI
         self.monitoring_active = False          # Flag to start monitoring loop
-        self.auto_mode = False
-        self.last_event_msg = "System Idle - Waiting for Mininet"
-        self.api = LoadBalancerAPI(self)
+        self.auto_mode = False                  # Flag for automatic scaling mode
+        self.api = LoadBalancerAPI(self)        # REST API instance
+        self.scaling_status_msg = None          # Status message for GUI
 
     # --- OVS FUNCTIONS ---
     
@@ -279,6 +279,8 @@ class RyuLoadBalancer(BaseLogger):
         """
         try:
             self.is_scaling = True
+            if self.auto_mode:
+                self.scaling_status_msg = "Auto-Scaling: Creating Controller..."
             if len(self.active_controllers) >= self.MAX_CONTROLLERS:
                 self.logger.warning(" [WARN] MAX CONTROLLERS REACHED. Cannot scale up.")
                 return
@@ -304,6 +306,7 @@ class RyuLoadBalancer(BaseLogger):
         finally:
             self.is_scaling = False
             self.last_scale_action_time = time.time()
+            self.scaling_status_msg = None
             self.logger.info(f" [INFO] New Controller READY")
 
     def scale_down(self):
@@ -312,6 +315,8 @@ class RyuLoadBalancer(BaseLogger):
         """
         try:
             self.is_scaling = True
+            if self.auto_mode:
+                self.scaling_status_msg = "Auto-Scaling: Removing Controller..."
             if len(self.active_controllers) <= self.MIN_CONTROLLERS:
                 self.logger.warning(" [WARN] MIN CONTROLLERS REACHED. Cannot scale down.")
                 return
@@ -336,6 +341,7 @@ class RyuLoadBalancer(BaseLogger):
         finally:
             self.is_scaling = False
             self.last_scale_action_time = time.time()
+            self.scaling_status_msg = None
             self.logger.info(f" [INFO] Controller REMOVED")
             
     def distribute_switches(self):

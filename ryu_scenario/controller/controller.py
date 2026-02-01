@@ -234,7 +234,7 @@ class Controller(app_manager.RyuApp):
         req_async = parser.OFPSetAsync(datapath, packet_in_mask, port_status_mask, [0,0])
         datapath.send_msg(req_async)
         
-        # B. DEFAULT ROLE: EQUAL
+        # B. DEFAULT ROLE: SLAVE
         self.switches_roles[dpid] = "SLAVE"
 
     def set_role(self, dpid, role_str, gen_id):

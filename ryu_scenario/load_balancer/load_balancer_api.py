@@ -164,6 +164,7 @@ class LoadBalancerAPI():
                     - is_scaling (bool): True if the system is in cooldown/scaling state.
                     - max_controllers (int): The configured maximum limit.
                     - auto_mode (bool): True if the load balancer is in automatic mode.
+                    - scaling_status_msg (str): Status message for scaling actions.
             """
             return jsonify({
                 "active_controllers": sorted(list(self.balancer.active_controllers)),
@@ -171,7 +172,8 @@ class LoadBalancerAPI():
                 "individual_rates": self.balancer.current_rates,
                 "is_scaling": (time.time() - self.balancer.last_scale_action_time) < self.balancer.COOLDOWN_TIME,
                 "max_controllers": self.balancer.MAX_CONTROLLERS,
-                "auto_mode": self.balancer.auto_mode
+                "auto_mode": self.balancer.auto_mode,
+                "scaling_msg": self.balancer.scaling_status_msg
             })
 
         @self.app.route('/generate_traffic', methods=['POST'])
